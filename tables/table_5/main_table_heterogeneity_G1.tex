@@ -1,0 +1,45 @@
+{
+\def\sym#1{\ifmmode^{#1}\else\(^{#1}\)\fi}
+\begin{tabular}{l*{5}{c}}
+\toprule
+            &\multicolumn{5}{c}{Work Commute (\% change vs weekday)}                                                 \\\cmidrule(lr){2-6}
+            &\multicolumn{1}{c}{(1)}        &\multicolumn{1}{c}{(2)}        &\multicolumn{1}{c}{(3)}        &\multicolumn{1}{c}{(4)}        &\multicolumn{1}{c}{(5)}        \\
+\midrule
+Hartal      &      -0.053$^{***}$&      -0.053$^{***}$&      -0.053$^{***}$&      -0.053$^{***}$&                    \\
+            &     (0.004)        &     (0.004)        &     (0.004)        &     (0.004)        &                    \\
+\addlinespace
+\quad ($\beta^L$) Hartal $\times$ \% Low Skill&                    &                    &                    &                    &      -0.026$^{**}$ \\
+            &                    &                    &                    &                    &     (0.012)        \\
+\addlinespace
+\quad ($\beta^H$) Hartal $\times$ \% High Skill&                    &                    &                    &                    &      -0.050$^{***}$\\
+            &                    &                    &                    &                    &     (0.004)        \\
+\addlinespace
+\quad Hartal $\times$ Dest. FE (z) &                    &      -0.022$^{***}$&      -0.019$^{***}$&      -0.011$^{**}$ &                    \\
+            &                    &     (0.005)        &     (0.005)        &     (0.005)        &                    \\
+\addlinespace
+\quad ($\beta\_W^L$) Hartal $\times$ \% Low Skill $\times$ Dest. FE Low Skill (z)&                    &                    &                    &                    &      -0.052$^{***}$\\
+            &                    &                    &                    &                    &     (0.013)        \\
+\addlinespace
+\quad ($\beta\_W^H$) Hartal $\times$ \% High Skill $\times$ Dest. FE High Skill (z)&                    &                    &                    &                    &      -0.008        \\
+            &                    &                    &                    &                    &     (0.005)        \\
+\addlinespace
+\quad Hartal $\times$ Log Duration (z)&                    &                    &      -0.028$^{***}$&      -0.027$^{***}$&                    \\
+            &                    &                    &     (0.002)        &     (0.002)        &                    \\
+\addlinespace
+\quad Log Workplace Distance to CBD (z) &                    &                    &                    &       0.014$^{***}$&                    \\
+            &                    &                    &                    &     (0.004)        &                    \\
+\addlinespace
+\quad ($\beta\_D^L$) Hartal $\times$ \% Low Skill $\times$ Log Duration (z) &                    &                    &                    &                    &      -0.025$^{***}$\\
+            &                    &                    &                    &                    &     (0.008)        \\
+\addlinespace
+\quad ($\beta\_D^H$) Hartal $\times$ \% High Skill $\times$ Log Duration (z) &                    &                    &                    &                    &      -0.029$^{***}$\\
+            &                    &                    &                    &                    &     (0.003)        \\
+\midrule
+Commuter FE &           X        &           X        &           X        &           X        &           X        \\
+P-value $\beta^L=\beta^H$&                    &                    &                    &                    &        0.06        \\
+P-value $\beta\_W^L=\beta\_W^H$&                    &                    &                    &                    &        0.00        \\
+P-value $\beta\_D^L=\beta\_D^H$&                    &                    &                    &                    &        0.63        \\
+Observations&     3.9e+06        &     3.9e+06        &     3.9e+06        &     3.9e+06        &     3.9e+06        \\
+\bottomrule
+\end{tabular}
+}

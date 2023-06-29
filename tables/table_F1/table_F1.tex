@@ -1,0 +1,16 @@
+\begin{tabular}{lccccccc}
+\toprule
+  &  (1) & (2) & (3)  & (4) & (5) & (6) & (7) \\
+ & \makecell{OLS\\(log Model Income)} & \multicolumn{6}{c}{\makecell{Elastic Net\\(All CDR Features)}} \\
+ &  & Maximize Test R$^2$ & CV & CV  & CV  & CV  & CV \\
+\addlinespace\addlinespace 
+
+Training R$^2$  &  0.26 & 0.44 & 0.44  &  0.48 & 0.50 & 0.51  &  0.53 \\
+Test R$^2$  &  0.22 & 0.24 & 0.19  &  0.18 & 0.13 & 0.16  &  0.12 \\ \addlinespace 
+\addlinespace
+Number of Folds for CV &  &  & 3 & 5 & 10 & 20 & 
+44
+ \\ \addlinespace
+Observations    & 88  & 88 & 88 & 88  & 88 & 88 & 88   \\
+\bottomrule
+\end{tabular}

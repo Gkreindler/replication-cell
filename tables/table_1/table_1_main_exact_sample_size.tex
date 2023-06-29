@@ -1,0 +1,25 @@
+{
+\def\sym#1{\ifmmode^{#1}\else\(^{#1}\)\fi}
+\begin{tabular}{l*{6}{c}}
+\toprule
+            &\multicolumn{1}{c}{(1)}&\multicolumn{1}{c}{(2)}&\multicolumn{1}{c}{(3)}&\multicolumn{1}{c}{(4)}&\multicolumn{1}{c}{(5)}&\multicolumn{1}{c}{(6)}\\
+            &\multicolumn{1}{c}{Commuting Probability}&\multicolumn{1}{c}{bgd\_daily\_trips}&\multicolumn{1}{c}{bgd\_skill}&\multicolumn{1}{c}{slk\_home\_work}&\multicolumn{1}{c}{slk\_daily\_trips}&\multicolumn{1}{c}{slk\_skill}\\
+\addlinespace\addlinespace
+log Travel Time&       -2.44***&       -2.55***&               &       -2.19***&       -2.22***&               \\
+            &      (0.02)   &      (0.02)   &               &      (0.02)   &      (0.02)   &               \\
+\addlinespace
+log Travel Time $\times$ Low Skill&               &               &       -3.73***&               &               &       -5.00***\\
+            &               &               &      (0.11)   &               &               &      (0.36)   \\
+\addlinespace
+log Travel Time $\times$ High Skill&               &               &       -1.91***&               &               &       -1.57***\\
+            &               &               &      (0.04)   &               &               &      (0.08)   \\
+\addlinespace\addlinespace
+City        &       Dhaka   &       Dhaka   &       Dhaka   &     Colombo   &     Colombo   &     Colombo   \\
+Comuting Measure&   Home-Work   & Daily Trips   &   Home-Work   &   Home-Work   & Daily Trips   &   Home-Work   \\
+Number of Destination FE&       1,859   &       1,868   &       1,859   &       1,201   &       1,201   &       1,201   \\
+Number of Trips&1,487,592.00   & 19330998.00   &1,487,587.00   &  938,450.00   &129007429.00   &  938,450.00   \\
+Observations&3,342,982.00   &3,435,277.00   &3,341,142.00   &1,323,116.00   &1,333,393.00   &1,323,100.00   \\
+Pseudo R2   &        0.67   &        0.82   &        0.68   &        0.66   &        0.88   &        0.67   \\
+\bottomrule
+\end{tabular}
+}

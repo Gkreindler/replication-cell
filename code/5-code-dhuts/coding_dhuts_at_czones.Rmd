@@ -1,0 +1,414 @@
+---
+title: "Code DHUTS data to commuting zone level"
+output:
+  html_document:
+    df_print: paged
+editor_options:
+  chunk_output_type: inline
+---
+
+# Outline
+
+```{r "setup", message=FALSE, warning=FALSE, include=FALSE}
+suppressWarnings(library(ggplot2))
+suppressWarnings(library(dplyr))
+suppressWarnings(library(tidyr))
+suppressWarnings(library(boot))
+suppressWarnings(library(readstata13))
+suppressWarnings(library(stargazer))
+suppressWarnings(library(lfe))
+suppressWarnings(library(knitr))
+suppressWarnings(library(geosphere))
+suppressWarnings(library(Hmisc))
+suppressWarnings(library(pastecs))
+suppressWarnings(library(foreign))
+
+
+set.seed(92373247); 
+  
+rm(list=ls())
+
+## include functions
+source(paste0(Sys.getenv("HOME"), "/Rinit/profile.R"))
+knitr::opts_knit$set(root.dir = BGDSLKCELLPHONE_DATA) 
+
+```
+
+
+## 1. Create Czone-level data
+
+```{r, include=TRUE}
+
+    ## Load DHUTS Data
+      dhuts.all <- readRDS("data_coded_bgd/dhuts/coded_dhuts.rds")
+
+      # keep only valid czone-czone observations
+      print(nrow(dhuts.all %>% filter(dhuts_sample == 1)))
+      
+      print(dhuts.all %>% 
+              filter(dhuts_sample == 1 & 
+                       (taz_code_office %in% 1:90)) %>% 
+              nrow())
+      
+      print(dhuts.all %>% 
+              filter(dhuts_sample == 1 & 
+                       (taz_code_office %in% 1:90) & 
+                       !is.na(taz_code_home)) %>% 
+              nrow())
+      
+      print(dhuts.all %>% 
+              filter(dhuts_sample == 1 & 
+                       (taz_code_office %in% 1:90) & 
+                       (taz_code_home %in% 1:90)) %>% 
+              nrow())
+      
+      # take all destination location
+      # & (taz_code_home %in% 1:90)
+      # (taz_code_office %in% 1:90)
+      dhuts.all.withgov <- dhuts.all %>% filter(dhuts_sample == 1)       
+      dhuts.all <- dhuts.all %>% filter(dhuts_sample == 1 & primary_govt == 0) 
+
+    ## Tower-czone correspondence
+      tower.BGD <- read.csv(file="data_raw_bgd/other/towers_bgd.csv")
+      tower.BGD <- tower.BGD %>% 
+        rename(lat = latitude, lon = longitude, THAID = thaid)
+      
+    ## merge distance to CBD
+      dist2cbd_bgd <- read.dta13(file = 'data_coded_bgd/other/dist2cbd.dta')
+      tower.BGD <- tower.BGD %>% left_join(dist2cbd_bgd, by="tower")
+
+
+      # drop to tower (unique) and czone level
+      tower.BGD <- tower.BGD %>% 
+        select(tower, czone, lat, lon, area_km2, distCBD) %>% 
+        unique() %>% 
+        filter(!is.na(czone))
+      
+      #stopifnot(tower.BGD %>% unique_id(tower))
+  
+      ## czone level distance to CBD and area
+      czone <- tower.BGD %>% 
+                group_by(czone) %>% 
+                summarise(
+                  area.czone = sum(area_km2),
+                  meandistC.czone = mean(distCBD),
+                  lat = mean(lat),
+                  lon = mean(lon)
+                ) %>% ungroup()
+    
+      ## code this as origin czone and destination czone level
+      czone_orig <- czone %>% 
+        select(czone, area.czone, meandistC.czone) %>% 
+        rename(origin.czone = czone, 
+               area.czone.o = area.czone, 
+               meandistC.czone.o = meandistC.czone)
+      czone_dest <- czone %>% 
+        select(czone, area.czone, meandistC.czone) %>% 
+        rename(destination.czone = czone, 
+               area.czone.d = area.czone, 
+               meandistC.czone.d = meandistC.czone)
+      
+    
+  ## Tower-level census data
+    censuspop.BGD <- read.dta13(file="data_coded_bgd/census/censuspop_tower_allvars.dta")
+      
+  ## load commuting data
+    commuting.BGD    <- read.dta13(file="data_coded_bgd/flows/daily_trips_odmatrix_gravity.dta")
+    commuting.BGD.hw <- read.dta13(file="data_coded_bgd/flows/home_work_odmatrix_gravity.dta")
+
+  ## sample for o-d pairs
+  commuting.BGD    <- commuting.BGD    %>% mutate(sample_income_coding = 1) %>% 
+    rename(destination.czone=destination_czone, origin.czone=origin_czone)
+  commuting.BGD.hw <- commuting.BGD.hw %>% mutate(sample_income_coding = 1) %>% 
+    rename(destination.czone=destination_czone, origin.czone=origin_czone)
+  
+  ## Get census populations at the czone level
+    pop.census.czone <- censuspop.BGD  %>% 
+      group_by(czone) %>% 
+      tally(tot_pop_isx) %>% 
+      rename(taz_code_home=czone, vol.census.orig=n) %>% 
+      filter(!is.na(vol.census.orig))
+    
+    # cell phone - origin level
+      # hw
+      vol.cell.hw.czone.orig   <- commuting.BGD.hw %>% 
+        group_by(origin.czone) %>% 
+        tally(volume) %>% 
+        rename(taz_code_home=origin.czone, vol.cell.hw.orig=n) %>% 
+        filter(!is.na(vol.cell.hw.orig))
+      
+      # daily volume
+      vol.cell.czone.orig   <- commuting.BGD %>% 
+        group_by(origin.czone) %>% 
+        tally(volume) %>% 
+        rename(taz_code_home=origin.czone, vol.cell.orig=n) %>% 
+        filter(!is.na(vol.cell.orig))
+    
+    # cell phone - destination level
+      # hw
+      vol.cell.hw.czone.dest   <- commuting.BGD.hw %>% 
+        group_by(destination.czone) %>% 
+        tally(volume) %>% 
+        rename(taz_code_office=destination.czone, vol.cell.hw.dest=n) %>% 
+        filter(!is.na(vol.cell.hw.dest))
+      
+      # daily
+      vol.cell.czone.dest   <- commuting.BGD %>% 
+        group_by(destination.czone) %>% 
+        tally(volume) %>% 
+        rename(taz_code_office=destination.czone, vol.cell.dest=n) %>% 
+        filter(!is.na(vol.cell.dest))
+    
+    # add censuspop and cellpop (origin level averages)
+    dhuts.all <- dhuts.all %>% left_join(pop.census.czone, by="taz_code_home") %>%
+                               left_join(vol.cell.hw.czone.orig, by="taz_code_home") %>%
+                               left_join(vol.cell.hw.czone.dest, by="taz_code_office") %>%
+                               left_join(vol.cell.czone.orig, by="taz_code_home") %>%
+                               left_join(vol.cell.czone.dest, by="taz_code_office")
+  
+  ## Add czone level variables: area, dist 2 CBD and sample (DCC and outside)
+  
+    # code czones not from 1:90 as "0"
+    # leave all destinations (even outside 1:90 commuting zones)
+    # leave all origins      (even outside 1:90 commuting zones) 
+    dhuts.all <- dhuts.all %>% 
+      rename(origin.czone = taz_code_home, 
+      destination.czone = taz_code_office) %>% 
+      mutate(
+        origin.czone = 
+          ifelse(is.na(origin.czone) | origin.czone > 90, 0, origin.czone),
+        destination.czone = 
+          ifelse(is.na(destination.czone) | destination.czone > 90, 0, destination.czone)) %>% 
+      
+      left_join(czone_dest, by="destination.czone") %>% 
+      left_join(czone_orig, by="origin.czone")          
+    
+    # add volume
+    dhuts.all <- dhuts.all %>% 
+      group_by(origin.czone) %>%
+      add_tally(name="vol.dhuts.orig") %>% 
+      ungroup()
+    
+  
+  ## Run regression of DHUTS income on demographics -- construct residual income
+  
+    # drop 1 row with missing values in one of the demographics
+      print(nrow(dhuts.all))
+      dhuts.all <- dhuts.all %>% 
+        drop_na(male, years, level_code, male_missing, years_missing, primary_code, sector_code)
+      print(nrow(dhuts.all))
+      
+    ## three different samples for the DHUTS data
+      
+      # only origins and destinations inside Delhi City Corportation (DCC)
+      dhuts.y.dcc  <- dhuts.all %>% filter(origin.czone > 0 & destination.czone > 0)
+      
+      # all origins (including outside DCC), destination inside DCC 
+      dhuts.y.allo <- dhuts.all %>% filter(destination.czone > 0)
+      
+      # all destinations (including outside DCC), origin inside DCC
+      dhuts.y.alld <- dhuts.all %>% filter(origin.czone > 0)
+  
+    ## Compute residual income (on demographics)
+      est.income.dems.dcc    = felm(log(income_trim) ~ male + years + level_code 
+                                    | male_missing + years_missing + primary_code 
+                                    + sector_code |0|0, data=dhuts.y.dcc)
+      
+      est.income.dems.allo    = felm(log(income_trim) ~ male + years + level_code 
+                                     | male_missing + years_missing + primary_code 
+                                     + sector_code |0|0, data=dhuts.y.allo)
+      
+      est.income.dems.alld    = felm(log(income_trim) ~ male + years + level_code 
+                                     | male_missing + years_missing + primary_code 
+                                     + sector_code |0|0, data=dhuts.y.alld)
+      
+    stargazer(est.income.dems.dcc, est.income.dems.allo, est.income.dems.alld, type='text')
+    
+    ## merge residuals
+    dhuts.y.dcc  <- cbind(dhuts.y.dcc , data.frame(residuals(est.income.dems.dcc)) 
+                          %>% rename(logy.r = log.income_trim.))
+    dhuts.y.allo <- cbind(dhuts.y.allo, data.frame(residuals(est.income.dems.allo))
+                          %>% rename(logy.r = log.income_trim.))
+    dhuts.y.alld <- cbind(dhuts.y.alld, data.frame(residuals(est.income.dems.alld))
+                          %>% rename(logy.r = log.income_trim.))
+  
+    ## function to merge residuals and collapse at dest level
+    # the survey is not automatically representative at the destimation level -> adjust origin population using cell phone or census population weights
+    merge_r_collapse_dest <- function(my_dhuts, my_tower){
+      # my_dhuts <- cbind(my_dhuts, data.frame(residuals(my_est)) %>% rename(logy.r = log.income_trim.))
+      my_dhuts <- my_dhuts %>% 
+                  mutate(
+                    # for origins outside 1:90, we have no data on population, 
+                    # replace all with 1
+                    # this strongly underweights the importance of areas outside DCC
+                    vol.dhuts.orig = ifelse(origin.czone==0, 1, vol.dhuts.orig),
+                    vol.cell.orig        = ifelse(origin.czone==0, 1, vol.cell.orig),
+                    vol.census.orig      = ifelse(origin.czone==0, 1, vol.census.orig)
+                  ) %>%
+                  group_by(destination.czone) %>% 
+                  dplyr::summarize(
+                    mean.logy.dhuts.cell_weight   = 
+                      weighted.mean(log(income_trim), 
+                                    w=vol.cell.orig/vol.dhuts.orig, na.rm=T),
+                    
+                    mean.logy.dhuts.cell_weight.r = 
+                      weighted.mean(logy.r, 
+                                    w=vol.cell.orig/vol.dhuts.orig, na.rm=T),
+                    
+                    mean.logy.dhuts.census_weight = 
+                      weighted.mean(log(income_trim), 
+                                    w=vol.census.orig/vol.dhuts.orig, na.rm=T),
+                    
+                    mean.logy.dhuts.census_weight.r  = 
+                      weighted.mean(logy.r, 
+                                    w=vol.census.orig/vol.dhuts.orig, na.rm=T),
+                    
+                    mean.logy.dhuts.no_weight    = mean(log(income_trim)),
+                    
+                    mean.logy.dhuts.no_weight.r  = mean(logy.r),
+                    
+                    vol_dhuts = n(),
+                    
+                    vol_dhuts_low  = sum(level_code <= 3),
+                    vol_dhuts_high = sum(level_code >= 4),
+                    
+                    vol_dhuts_low2  = sum(level_code <= 2),
+                    vol_dhuts_high2 = sum(level_code >= 3),
+                    
+                    logmeandistC.czone.d = log(mean(meandistC.czone.d)),
+                    
+                    area.czone = mean(area.czone.d),
+                    
+                    vol.cell.dest = mean(vol.cell.dest),
+                    vol.cell.hw.dest = mean(vol.cell.hw.dest),
+                    
+                    
+                    
+                    ## income by high skill and low skill
+                    mean.logy.dhuts.cell_weight.low = 
+                      mean(ifelse(level_code <= 3, log(income_trim), NA),
+                                    w=vol.cell.orig/vol.dhuts.orig, na.rm=T),
+  
+                    mean.logy.dhuts.cell_weight.high = 
+                      weighted.mean(ifelse(level_code >= 4, log(income_trim), NA),
+                                    w=vol.cell.orig/vol.dhuts.orig, na.rm=T),
+                    
+                    mean.logy.dhuts.no_weight.low = 
+                      mean(ifelse(level_code <= 3, log(income_trim), NA), na.rm=T),
+  
+                    mean.logy.dhuts.no_weight.high = 
+                      mean(ifelse(level_code >= 4, log(income_trim), NA), na.rm=T),
+                    
+                    
+                    
+                    ## income by high skill and low skill -- more lenient definition
+                    mean.logy.dhuts.cell_weight.low2 = 
+                      mean(ifelse(level_code <= 2, log(income_trim), NA),
+                                    w=vol.cell.orig/vol.dhuts.orig, na.rm=T),
+  
+                    mean.logy.dhuts.cell_weight.high2 = 
+                      weighted.mean(ifelse(level_code >= 3, log(income_trim), NA),
+                                    w=vol.cell.orig/vol.dhuts.orig, na.rm=T),
+                    
+                    mean.logy.dhuts.no_weight.low2 = 
+                      mean(ifelse(level_code <= 2, log(income_trim), NA), na.rm=T),
+  
+                    mean.logy.dhuts.no_weight.high2 = 
+                      mean(ifelse(level_code >= 3, log(income_trim), NA), na.rm=T)
+                    
+                    
+                  ) %>% 
+        ungroup() %>% 
+        # Construct employment density variable
+        mutate(
+          ldensity.cell.employment    = log(vol.cell.dest   /area.czone),
+          ldensity.cell.hw.employment = log(vol.cell.hw.dest/area.czone)
+          )
+    }
+
+      
+## Collapse DHUTS DATA (obs at czone level)
+  
+  ## collapse at destination level   # , na.rm=T not needed
+  ## Apply to all versions
+  dhuts.y.dest.dcc  <- merge_r_collapse_dest(dhuts.y.dcc)
+  
+  dhuts.y.dest.allo <- merge_r_collapse_dest(dhuts.y.allo)
+  
+  ## different code for origin level income
+  # the suryve is representative at the origin level, so no weights are necessary
+
+  dhuts.y.orig <- dhuts.y.alld %>%
+                  group_by(origin.czone) %>%
+                  summarise(
+                    mean.logy.dhuts.orig   = mean(log(income_trim)),
+                    mean.logy.dhuts.orig.r = mean(logy.r),
+                    vol_dhuts = n(),
+                    logmeandistC.czone.o = log(mean(meandistC.czone.o)),
+                    area.czone = mean(area.czone.o),
+                    
+                    vol.cell.orig=mean(vol.cell.orig),
+                    vol.cell.hw.orig = mean(vol.cell.hw.orig)
+                  ) %>% 
+    ungroup() %>% 
+    # Construct residential density variable
+      mutate(
+        ldensity.cell.resident    = log(vol.cell.orig   /area.czone),
+        ldensity.cell.hw.resident = log(vol.cell.hw.orig/area.czone)
+        )
+
+```
+
+## 2. Create individual data including government workers (for robustness)
+
+```{r}
+
+  dhuts.all.withgov <- dhuts.all.withgov %>% left_join(pop.census.czone, by="taz_code_home") %>%
+                             left_join(vol.cell.hw.czone.orig, by="taz_code_home") %>%
+                             left_join(vol.cell.hw.czone.dest, by="taz_code_office") %>%
+                             left_join(vol.cell.czone.orig, by="taz_code_home") %>%
+                             left_join(vol.cell.czone.dest, by="taz_code_office")
+  
+  ## Add czone level variables: area, dist 2 CBD and sample (DCC and outside)
+  
+  # code czones not from 1:90 as "0"
+  # leave all destinations (even outside 1:90 commuting zones)
+  # leave all origins      (even outside 1:90 commuting zones) 
+  dhuts.all.withgov <- dhuts.all.withgov %>% 
+    rename(origin.czone = taz_code_home, 
+    destination.czone = taz_code_office) %>% 
+    mutate(
+      origin.czone = 
+        ifelse(is.na(origin.czone) | origin.czone > 90, 0, origin.czone),
+      destination.czone = 
+        ifelse(is.na(destination.czone) | destination.czone > 90, 0, destination.czone)) %>% 
+    
+    left_join(czone_dest, by="destination.czone") %>% 
+    left_join(czone_orig, by="origin.czone")          
+  
+  # add volume
+  dhuts.all.withgov <- dhuts.all.withgov %>% 
+    group_by(origin.czone) %>%
+    add_tally(name="vol.dhuts.orig") %>% 
+    ungroup()
+
+```
+
+
+
+## 4. Save
+
+```{r}
+  
+  saveRDS(czone,"data_coded_bgd/dhuts/czone_BGD.rds")  
+
+  saveRDS(dhuts.all,"data_coded_bgd/dhuts/dhutsall.rds")
+  saveRDS(dhuts.all.withgov,"data_coded_bgd/dhuts/dhutsall_withgov.rds")
+  
+  saveRDS(dhuts.y.dest.dcc ,"data_coded_bgd/dhuts/dhuts_dest_y_temp.rds")
+  write.dta(dhuts.y.dest.dcc, "data_coded_bgd/dhuts/dhuts_dest_y_temp.dta")
+  
+  saveRDS(dhuts.y.dest.allo,"data_coded_bgd/dhuts/dhuts_dest_y_allo_temp.rds")    
+  saveRDS(dhuts.y.orig     ,"data_coded_bgd/dhuts/dhuts_orig_y_temp.rds")  
+
+```

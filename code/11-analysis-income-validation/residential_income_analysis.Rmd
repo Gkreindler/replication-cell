@@ -1,0 +1,335 @@
+---
+title: "Residential income validation"
+output:
+  html_document:
+    df_print: paged
+editor_options:
+  chunk_output_type: inline
+---
+
+# Outline
+
+```{r "setup", message=FALSE, warning=FALSE, include=FALSE}
+suppressWarnings(library(ggplot2))
+suppressWarnings(library(dplyr))
+suppressWarnings(library(tidyr))
+suppressWarnings(library(boot))
+suppressWarnings(library(readstata13))
+suppressWarnings(library(stargazer))
+suppressWarnings(library(lfe))
+suppressWarnings(library(knitr))
+suppressWarnings(library(geosphere))
+suppressWarnings(library(Hmisc))
+suppressWarnings(library(pastecs))
+suppressWarnings(library(foreign))
+
+set.seed(92373247); 
+  
+rm(list=ls())
+
+
+## include functions
+source(paste0(Sys.getenv("HOME"), "/Rinit/profile.R"))
+source("aux_functions.r")
+#source("income_functions.r")
+source(paste0(BGDSLKCELLPHONE_CODE, "util/conley.R"))
+knitr::opts_knit$set(root.dir = BGDSLKCELLPHONE_DATA) 
+
+```
+
+## 1. Load residential income coded data
+
+```{r}
+  load(file="data_coded/residential_income.Rdata")
+
+  census.SLK.income.hw <- census.SLK.income.hw %>% mutate(
+    log_res_pop_density = log(volume.origin/km2_tower_o),
+    log_distCBD = log(distCBD)
+    ) %>% drop_na(census_outcomevar, log_res_pop_density, log_distCBD, logy.v00.adj, ds_n)
+  
+  
+  census.BGD.income.hw <- census.BGD.income.hw %>% mutate(
+    log_res_pop_density = log(volume.origin/km2_tower_o),
+    log_distCBD = log(distCBD)
+    ) %>% drop_na(census_outcomevar, log_res_pop_density, log_distCBD, logy.v00.adj)
+  
+  # distance cutof for Conley
+  dist_cutoff = 5
+```
+
+## 2. Main Tables --  Census PCA
+
+
+```{r, include=TRUE, echo=TRUE, message=TRUE, warning=FALSE}
+
+  outcomevar     = "census_outcomevar"
+  out_name       = "census_pca"
+  out_name_clean = "Census Residential Income Proxy"
+  
+  #################
+  #################
+  ## BGD
+  est.BGD.1 <- weighted_felm_with_ConleySE(data= census.BGD.income.hw, 
+                                      dep = outcomevar, 
+                                      indep = "res.meanlogy.v00.adj", 
+                                      weight ="volume.origin", dist_cutoff = dist_cutoff)
+  
+  est.BGD.2 <- weighted_felm_with_ConleySE(data= census.BGD.income.hw, 
+                                      dep = outcomevar, 
+                                      indep = "log_res_pop_density", 
+                                      weight ="volume.origin", dist_cutoff = dist_cutoff)
+  
+  est.BGD.3 <- weighted_felm_with_ConleySE(data= census.BGD.income.hw, 
+                                      dep = outcomevar, 
+                                      indep = "log_distCBD", 
+                                      weight ="volume.origin", dist_cutoff = dist_cutoff)
+
+  ### Slightly more complicated when we include subdistrict FE: because of Conley, first residualize outcome and regressors on FE
+  est.BGD.4.plain  <- felm(data=census.BGD.income.hw, 
+                     as.formula(paste0(outcomevar, 
+                     " ~ res.meanlogy.v00.adj + log(volume.origin/km2_tower_d) + log(distCBD) + logy.v00.adj | THAID | 0 | 0")), weight=census.BGD.income.hw$volume.origin, keepCX=T)
+  
+  # residualize and predict
+    census.BGD.income.temp <- census.BGD.income.hw
+    for (myvar in c(outcomevar, "res.meanlogy.v00.adj", "log_res_pop_density", "log_distCBD", "logy.v00.adj")){
+      est.temp <- felm(as.formula(paste0(myvar," ~ 0 | as.factor(THAID) | 0 | 0")), 
+                       weight=census.BGD.income.hw$volume.origin, data=census.BGD.income.hw)
+      # merge residuals
+      census.BGD.income.temp  <- cbind(census.BGD.income.temp %>% select(-myvar), 
+                                      data.frame(residuals(est.temp)) 
+                                      )
+    }
+    
+    # %>% rename(!!paste0(myvar,".resid") := !!myvar)
+    
+    est.BGD.4 <- weighted_felm_with_ConleySE(data= census.BGD.income.temp, 
+                                        dep = outcomevar, 
+              indep = c("res.meanlogy.v00.adj", 
+                        "log_res_pop_density", 
+                        "log_distCBD", 
+                        "logy.v00.adj"), 
+                                        weight ="volume.origin", dist_cutoff = dist_cutoff)
+
+    r2.BGD <- c("Adjusted R2", 
+              round(est.BGD.1$adj.rsq, 2), 
+              round(est.BGD.2$adj.rsq, 2), 
+              round(est.BGD.3$adj.rsq, 2), 
+              round(summary(est.BGD.4.plain)$r2adj, 2))
+  
+  # check to see
+    stargazer(est.BGD.1, est.BGD.2, est.BGD.3, est.BGD.4.plain, est.BGD.4, 
+            type='text', omit=c('THAID'), omit.stat='ser', dep.var.labels.include = FALSE)
+  
+  
+                     
+  # Number of distinct sub-district FE
+  n_thana = census.BGD.income.hw %>% select(THAID) %>% unique() %>% nrow()
+  
+  
+  #################
+  #################
+  ## SLK
+  est.SLK.1 <- weighted_felm_with_ConleySE(data= census.SLK.income.hw, 
+                                      dep = outcomevar, 
+                                      indep = "res.meanlogy.v00.adj", 
+                                      weight ="volume.origin", dist_cutoff = dist_cutoff)
+  
+  est.SLK.2 <- weighted_felm_with_ConleySE(data= census.SLK.income.hw, 
+                                      dep = outcomevar, 
+                                      indep = "log_res_pop_density", 
+                                      weight ="volume.origin", dist_cutoff = dist_cutoff)
+  
+  est.SLK.3 <- weighted_felm_with_ConleySE(data= census.SLK.income.hw, 
+                                      dep = outcomevar, 
+                                      indep = "log_distCBD", 
+                                      weight ="volume.origin", dist_cutoff = dist_cutoff)
+
+  ### Slightly more complicated when we include subdistrict FE: because of Conley, first residualize outcome and regressors on FE
+  est.SLK.4.plain  <- felm(data=census.SLK.income.hw, 
+                     as.formula(paste0(outcomevar, 
+                     " ~ res.meanlogy.v00.adj + log(volume.origin/km2_tower_d) + log(distCBD) + logy.v00.adj | ds_n | 0 | 0")), weight=census.SLK.income.hw$volume.origin, keepCX=T)
+  
+  # residualize and predict
+    census.SLK.income.temp <- census.SLK.income.hw
+    for (myvar in c(outcomevar, "res.meanlogy.v00.adj", "log_res_pop_density", "log_distCBD", "logy.v00.adj")){
+      est.temp <- felm(as.formula(paste0(myvar," ~ 0 | as.factor(ds_n) | 0 | 0")),  weight=census.SLK.income.hw$volume.origin, data=census.SLK.income.hw)
+      census.SLK.income.temp  <- cbind(census.SLK.income.temp %>% select(-myvar), 
+                                      data.frame(residuals(est.temp)))
+    }
+    
+    est.SLK.4 <- weighted_felm_with_ConleySE(data= census.SLK.income.temp, 
+                                        dep = outcomevar, 
+              indep = c("res.meanlogy.v00.adj", 
+                        "log_res_pop_density", 
+                        "log_distCBD", 
+                        "logy.v00.adj"), 
+                                        weight ="volume.origin", dist_cutoff = dist_cutoff)
+
+    r2.SLK <- c("Adjusted R2", 
+              round(est.SLK.1$adj.rsq, 2), 
+              round(est.SLK.2$adj.rsq, 2), 
+              round(est.SLK.3$adj.rsq, 2), 
+              round(summary(est.SLK.4.plain)$r2adj, 2))
+  
+  # check to see
+    stargazer(est.SLK.1, est.SLK.2, est.SLK.3, est.SLK.4.plain, est.SLK.4, 
+            type='text', omit=c('ds_n'), omit.stat='ser', dep.var.labels.include = FALSE)
+                     
+  # Number of distinct sub-district FE
+  n_ds = census.SLK.income.hw %>% select(ds_n) %>% unique() %>% nrow()
+
+  ## BGD
+    outfile = paste0(BGDSLKCELLPHONE_DATA, "tables/table_H8/table_H8_BGD.tex")
+    capture.output(
+    stargazer(est.BGD.1, est.BGD.2, est.BGD.3, est.BGD.4,
+            add.lines=list(
+              c("Sub-district FE (count)", "", "", "", paste0("X (",n_thana,")")),
+              r2.BGD
+            ),
+            omit=c('THAID', 'sqrt_weight'), digits = 2,
+            #model.numbers=FALSE,
+            dep.var.labels = out_name_clean,
+            dep.var.caption = "",
+            covariate.labels = c('log Model Income (residential)', 
+                                 'log Residential Density', 
+                                 'log Dist. to CBD',
+                                 'log Model Income (workplace)'), 
+            out = outfile,
+            type='latex', omit.stat=c('ser','rsq', 'adj.rsq'), omit.table.layout = "n", float = F))
+# dep.var.labels.include = FALSE,
+    # drop hline commands
+    edit_tex_file(texfile=outfile, drop_hline=T, add_resize="{0.8\\textwidth}{!}{")
+      
+  ## SLK
+    outfile = paste0(BGDSLKCELLPHONE_DATA, "tables/table_H8/table_H8_SLK.tex")
+    capture.output(
+    stargazer(est.SLK.1, est.SLK.2, est.SLK.3, est.SLK.4,
+            add.lines=list(
+              c("Sub-district FE (count)", "", "","", paste0("X (",n_ds,")")),
+              r2.SLK
+            ),
+            omit=c('ds_n', 'sqrt_weight'), digits = 2,
+            #model.numbers=FALSE,
+            dep.var.labels = out_name_clean,
+            dep.var.caption = "",
+            covariate.labels = c('log Model Income (residential)', 
+                                 'log Residential Density', 
+                                 'log Dist. to CBD',
+                                 'log Model Income (workplace)'),
+            out = outfile,
+            type='latex', omit.stat=c('ser','rsq', 'adj.rsq'), omit.table.layout = "n", float = F))
+
+    # drop hline commands
+    edit_tex_file(texfile=outfile, drop_hline=T, add_resize="{0.8\\textwidth}{!}{")
+
+```
+
+
+
+## 3. Figures -- VIIRS and Census PCA
+
+### census proxy: include linear fit in Dhaka
+
+```{r}
+
+  outcomevar = "census_outcomevar"
+  out_name   = "census_pca"
+  out_name_clean = "Census Residential Income Proxy"
+  
+  # BGD
+  census.BGD.income.hw <- census.BGD.income.hw %>% 
+    mutate(res.meanlogy.v00.adj.demean = res.meanlogy.v00.adj - mean(res.meanlogy.v00.adj, na.rm=T))
+  
+  ## regression to obtain slope
+    est1 <- weighted_felm_with_ConleySE(data= census.BGD.income.hw, 
+                                        dep = "census_outcomevar", 
+                                        indep = "res.meanlogy.v00.adj.demean", 
+                                        weight ="volume.origin", dist_cutoff = 5)
+    slope    = round(as.vector(coef(est1)[1]),2)
+    intc     = round(as.vector(coef(est1)[2]),2)
+    slope_se = round(as.vector(est1$cse[1]),2)
+    intc_se  = round(as.vector(est1$cse[2]),2)
+    R2       = round(est1$adj.rsq,2)
+    RMSE     = round(est1$RMSE,2)
+  
+  ## show graphs
+    ggplot(aes(x=res.meanlogy.v00.adj.demean, y=!!as.name(outcomevar), size=volume.origin), 
+           data=census.BGD.income.hw) +
+      geom_point(shape=1, alpha=0.5) +
+      # geom_smooth(aes(weight=volume), method='lm', se=F) +
+      
+      annotate("text", label = paste0("y==", slope, "*x+", intc),                  x=2.5, y=-2.0, parse = TRUE, size = 3) +
+      annotate("text", label = paste0("       (", slope_se, ")  (", intc_se, ")"), x=2.5, y=-2.3, size = 3) +
+      annotate("text", label = paste0("R^2==", R2),                                x=2.5, y=-2.8, parse = TRUE, size = 3) +
+      annotate("text", label = paste0("RMSE==", RMSE),                             x=2.5, y=-3.3, parse = TRUE, size = 3) +
+      
+      geom_smooth(aes(weight=volume.origin), method='lm', se=F) +
+
+      xlab('Log Model Income (residential, demeaned)') + ylab(out_name_clean) +
+      labs(colour="") + theme(legend.position = "none",
+                              plot.title = element_text(hjust = 0.5),
+                              panel.background = element_rect(fill = 'white'),
+                              panel.grid.major.y = element_line(size = 0.25, colour = 'gray90'),
+                              axis.line = element_line(size=0.25, color = "black"),
+                              axis.ticks=element_line(size=0.25, color = "black"),
+                              axis.text=element_text(size=8),
+                              axis.title=element_text(size=8))+ 
+      scale_size_continuous(range = c(1, 5))
+    
+    ggsave(paste0(BGDSLKCELLPHONE_DATA, 'tables/table_4A/table_4A_BGD.pdf'), 
+           width=4, height=3.5)
+    
+```
+
+
+### census proxy: include linear fit in Colombo
+
+```{r}
+
+  outcomevar = "census_outcomevar"
+  out_name   = "census_pca"
+  out_name_clean = "Census Residential Income Proxy"
+  
+  # BGD
+  census.SLK.income.hw <- census.SLK.income.hw %>% 
+    mutate(res.meanlogy.v00.adj.demean = res.meanlogy.v00.adj - mean(res.meanlogy.v00.adj, na.rm=T))
+  
+  ## regression to obtain slope
+    est1 <- weighted_felm_with_ConleySE(data= census.SLK.income.hw, 
+                                        dep = "census_outcomevar", 
+                                        indep = "res.meanlogy.v00.adj.demean", 
+                                        weight ="volume.origin", dist_cutoff = 5)
+    slope    = round(as.vector(coef(est1)[1]),2)
+    intc     = round(as.vector(coef(est1)[2]),2)
+    slope_se = round(as.vector(est1$cse[1]),2)
+    intc_se  = round(as.vector(est1$cse[2]),2)
+    R2       = round(est1$adj.rsq,2)
+    RMSE     = round(est1$RMSE,2)
+  
+  ## show graphs
+  
+    ggplot(aes(x=res.meanlogy.v00.adj.demean, y=!!as.name(outcomevar), size=volume.origin), data=census.SLK.income.hw) +
+      geom_point(shape=1, alpha=0.5) +
+      # geom_smooth(aes(weight=volume), method='lm', se=F) +
+      annotate("text", label = paste0("y==", slope, "*x+", intc),                  x=3, y=1, parse = TRUE, size = 3) +
+      annotate("text", label = paste0("       (", slope_se, ")  (", intc_se, ")"), x=3, y=0.5, size = 3) +
+      annotate("text", label = paste0("R^2==", R2),                                x=3, y=-0.2, parse = TRUE, size = 3) +
+      annotate("text", label = paste0("RMSE==", RMSE),                             x=3, y=-0.9, parse = TRUE, size = 3) +
+      
+      geom_smooth(aes(weight=volume.origin), method='lm', se=F) +
+      
+      xlab('Log Model Income (residential, demeaned)') + ylab(out_name_clean) +
+      labs(colour="") + theme(legend.position = "none",
+                              plot.title = element_text(hjust = 0.5),
+                              panel.background = element_rect(fill = 'white'),
+                              panel.grid.major.y = element_line(size = 0.25, colour = 'gray90'),
+                              axis.line = element_line(size=0.25, color = "black"),
+                              axis.ticks=element_line(size=0.25, color = "black"),
+                              axis.text=element_text(size=8),
+                              axis.title=element_text(size=8))+ 
+      scale_size_continuous(range = c(1, 5))
+
+    ggsave(paste0(BGDSLKCELLPHONE_DATA, 'tables/table_4A/table_4A_SLK.pdf'), width=4, height=3.5)
+    
+
+```

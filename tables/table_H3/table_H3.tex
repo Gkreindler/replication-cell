@@ -1,0 +1,19 @@
+{
+\def\sym#1{\ifmmode^{#1}\else\(^{#1}\)\fi}
+\begin{tabular}{l*{4}{c}}
+\toprule
+                    &\multicolumn{2}{c}{log Res. Density (cell phone)}&\multicolumn{2}{c}{log Res. Pop. (cell phone)}\\\cmidrule(lr){2-3}\cmidrule(lr){4-5}
+                    &\multicolumn{1}{c}{(1)}         &\multicolumn{1}{c}{(2)}         &\multicolumn{1}{c}{(3)}         &\multicolumn{1}{c}{(4)}         \\
+\midrule
+log Residential Density (census)&        0.91\sym{***}&        1.16\sym{***}&                     &                     \\
+                    &     (0.088)         &      (0.10)         &                     &                     \\
+\addlinespace
+log Residential Population (census)&                     &                     &        0.71\sym{***}&        0.61\sym{***}\\
+                    &                     &                     &     (0.070)         &     (0.022)         \\
+\midrule
+City                &       Dhaka         &     Colombo         &       Dhaka         &     Colombo         \\
+Observations        &        1836         &        1196         &        1836         &        1196         \\
+Adjusted $ R^2$     &        0.38         &        0.53         &        0.31         &        0.35         \\
+\bottomrule
+\end{tabular}
+}

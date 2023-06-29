@@ -1,0 +1,188 @@
+---
+title: "Workplace Income Validation Analysis"
+output:
+  html_document:
+    df_print: paged
+editor_options:
+  chunk_output_type: inline
+---
+
+# Outline
+
+```{r "setup", message=FALSE, warning=FALSE, include=FALSE}
+suppressWarnings(library(ggplot2))
+suppressWarnings(library(dplyr))
+suppressWarnings(library(tidyr))
+suppressWarnings(library(boot))
+suppressWarnings(library(readstata13))
+suppressWarnings(library(stargazer))
+suppressWarnings(library(lfe))
+suppressWarnings(library(knitr))
+suppressWarnings(library(geosphere))
+suppressWarnings(library(Hmisc))
+suppressWarnings(library(pastecs))
+suppressWarnings(library(foreign))
+
+set.seed(92373247); 
+  
+#rm(list=ls())
+
+
+## include functions
+source(paste0(Sys.getenv("HOME"), "/Rinit/profile.R"))
+knitr::opts_knit$set(root.dir = BGDSLKCELLPHONE_DATA) 
+source("aux_functions.r")
+source("income_analysis_functions.r")
+source(paste0(BGDSLKCELLPHONE_CODE, "util/conley.R"))
+
+```
+
+
+## 0. Load Data (BGD)
+
+```{r, include=TRUE}
+
+    ## Load czone
+      czone <- readRDS("data_coded_bgd/dhuts/czone_BGD.rds")
+
+    ## dhuts at origin level
+      dhuts.y.orig    <- readRDS("data_coded_bgd/workplace_income/dhuts_orig_y.rds")
+    
+    ## dhuts at destination level
+      dhuts.y.dest.dcc    <- readRDS("data_coded_bgd/workplace_income/dhuts_dest_y.rds")
+      dhuts.y.dest.allo   <- readRDS("data_coded_bgd/workplace_income/dhuts_dest_y_allo.rds")
+      dhuts.y.dest.hw     <- readRDS("data_coded_bgd/workplace_income/dhuts_dest_y_hw.rds")
+      dhuts.y.dest.exclnb <- readRDS("data_coded_bgd/workplace_income/dhuts_dest_y_exclnb.rds")
+      
+```    
+
+
+
+## 1. Income Validation Regressions (and Graphs)
+
+```{r, include=TRUE}
+
+  ## Preparation for Conley SE -- add latitude and longitude variables
+    prep_conley <- function(my_dhuts){
+      my_dhuts <- my_dhuts %>%
+                    left_join(czone %>% rename(destination.czone = czone), by='destination.czone') %>%
+                    mutate(unit = 1, time = 1)
+    }
+  
+    dhuts.y.dest.dcc    <- prep_conley(dhuts.y.dest.dcc)
+    dhuts.y.dest.allo   <- prep_conley(dhuts.y.dest.allo)
+    dhuts.y.dest.hw     <- prep_conley(dhuts.y.dest.hw)
+    dhuts.y.dest.exclnb <- prep_conley(dhuts.y.dest.exclnb)
+    
+    dhuts.y.orig <- dhuts.y.orig %>% 
+                    left_join(czone %>% rename(origin.czone = czone), by='origin.czone') %>% 
+                    mutate(unit = 1, time = 1)
+  
+  ## Estimation sample
+    dhuts.y.dest.dcc    <- dhuts.y.dest.dcc     %>% mutate(r2_sample = 1)
+    dhuts.y.dest.allo   <- dhuts.y.dest.allo    %>% mutate(r2_sample = 1)
+    dhuts.y.dest.hw     <- dhuts.y.dest.hw      %>% mutate(r2_sample = 1)
+    dhuts.y.dest.exclnb <- dhuts.y.dest.exclnb  %>% mutate(r2_sample = 1)
+   
+  ## Run main regression tables at destination level (1-5 on log(income) and 6-10 on residual log(income)) 
+  # dhuts.w = 1 (cell) 
+  # dhuts.w = 2 (census) 
+  # dhuts.w = 3 (no weights)
+  
+  # FULL MAIN TABLE for HW
+    outfile = paste0(BGDSLKCELLPHONE_DATA, 
+                     "tables/table_H5/table_H5.tex")
+    outfile_resid = paste0(BGDSLKCELLPHONE_DATA, 
+                           "tables/table_H5/table_H5_resid.tex")
+    print("## Robustness: Main HW  ##")
+    r2_regressions(dhuts.y.dest.hw, dist_cutoff=5, dhuts.w=3,
+                   outfile=outfile, outfile_resid=outfile_resid)
+    edit_tex_file(texfile=outfile, drop_hline=T, add_resize="", )
+    edit_tex_file(texfile=outfile_resid, drop_hline=T, add_resize="", )
+    
+  ## Robustness Destination Level
+    outfile_stub = paste0(BGDSLKCELLPHONE_DATA, "tables/table_H6/table_H6_")
+    r2_regressions_robust(dhuts.y.dest.hw,
+                          dhuts.y.dest.exclnb,
+                          dhuts.y.dest.dcc,
+                          dhuts.y.dest.allo,
+                          dhuts.w=3, dist_cutoff=5, outfile_stub=outfile_stub)
+
+```
+
+### 1.1 Different income measures
+
+- Four different measures based on different assumptions about shocks and travel cost (Table D1)
+
+```{r}
+
+    outfile = paste0(BGDSLKCELLPHONE_DATA,
+                     "tables/table_D1/table_D1.tex")
+
+    r2_regressions_4ver_pref_prod(dhuts.y.dest.hw, dist_cutoff=5, dhuts.w=3, outfile=outfile)
+    
+
+```
+
+
+
+## 2. Income R2 Graphs
+
+#### 2.1 Income
+
+```{r, include=TRUE}
+
+  # destination FE (adjusted)
+  dhuts.y.dest.hw <- dhuts.y.dest.hw %>% 
+                  filter(r2_sample == 1) %>%
+                  mutate(mean.logy.v00.adj.dest.demean = 
+                           (mean.logy.v00.adj.dest - mean(mean.logy.v00.adj.dest, na.rm=T)) 
+                         )
+  
+
+  ## regression to obtain slope
+  est1 <- weighted_felm_with_ConleySE(data= dhuts.y.dest.hw, 
+                                      dep = "mean.logy.dhuts.no_weight", 
+                                      indep = "mean.logy.v00.adj.dest", 
+                                      weight ="vol_dhuts", dist_cutoff = 5)
+  slope    = round(as.vector(coef(est1)[1]),2)
+  intc     = round(as.vector(coef(est1)[2]),2)
+  slope_se = round(as.vector(est1$cse[1]),2)
+  intc_se  = round(as.vector(est1$cse[2]),2)
+  R2       = round(est1$adj.rsq,2)
+  RMSE     = round(est1$RMSE,2)
+  
+  ggplot(aes(x=mean.logy.v00.adj.dest.demean, 
+               y=mean.logy.dhuts.no_weight, #mean.logy.dhuts.no_weight.demean, 
+               size=vol_dhuts),
+           data=dhuts.y.dest.hw) + 
+      geom_point(shape=1) +
+      #geom_abline(intercept=0, slope=1) +
+      annotate("text", label = paste0("y==", slope, "*x+", intc), x=1.5,y=9.0, parse = TRUE, size = 3) +
+      annotate("text", label = paste0("       (", slope_se, ")  (", intc_se, ")"), x=1.5, y=8.95, size = 3) +
+      annotate("text", label = paste0("R^2==", R2), x=1.5, y =8.85, parse = TRUE, size = 3) +
+      annotate("text", label = paste0("RMSE==", RMSE), x=1.5, y =8.75, parse = TRUE, size = 3) +
+      geom_smooth(aes(weight=vol_dhuts), method='lm', se=F) +
+      xlab(expression(paste(epsilon, ' * Log Model Income (Area-Adjusted Destination Fixed Effects)'))) + ylab('Log Survey Income') +
+      labs(colour="") + 
+      theme(legend.position = "none",
+                              plot.title = element_text(hjust = 0.5),
+                              panel.background = element_rect(fill = 'white'),
+                              #panel.grid.major.y = element_line(size = 0.25, colour = 'gray90'),
+                              axis.line = element_line(size=0.25, color = "black"),
+                              axis.ticks=element_line(size=0.25, color = "black"),
+                              axis.text=element_text(size=8),
+                              axis.title=element_text(size=8))+ 
+      #xlim(-0.8, 0.5)+ylim(-0.8, 0.5)+ 
+      scale_size_continuous(range = c(1, 8)) 
+
+    ggsave(paste0(BGDSLKCELLPHONE_DATA, 'tables/table_2A/table_2A.png'), 
+           width=4, height=3.5)
+
+
+```
+  
+  
+
+
+  

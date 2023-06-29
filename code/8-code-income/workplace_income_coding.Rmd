@@ -1,0 +1,330 @@
+---
+title: "Income estimation at workplace level"
+output:
+  html_document:
+    df_print: paged
+editor_options:
+  chunk_output_type: inline
+---
+
+# Outline
+
+```{r "setup", message=FALSE, warning=FALSE, include=FALSE}
+suppressWarnings(library(ggplot2))
+suppressWarnings(library(dplyr))
+suppressWarnings(library(tidyr))
+suppressWarnings(library(boot))
+suppressWarnings(library(readstata13))
+suppressWarnings(library(stargazer))
+suppressWarnings(library(lfe))
+suppressWarnings(library(knitr))
+suppressWarnings(library(geosphere))
+suppressWarnings(library(Hmisc))
+suppressWarnings(library(pastecs))
+suppressWarnings(library(foreign))
+suppressWarnings(library(FENmlm))
+
+
+set.seed(92373247); 
+  
+rm(list=ls())
+
+## include functions
+source(paste0(Sys.getenv("HOME"), "/Rinit/profile.R"))
+knitr::opts_knit$set(root.dir = BGDSLKCELLPHONE_DATA) 
+source("aux_functions.r")
+source("income_coding_functions.R")
+
+```
+
+
+## 1. Load Data (BGD: gravity results, commuting matrices)
+
+```{r, include=TRUE}
+
+    ## load DHUTS data (includes census population and cell phone population)
+      czone             <- readRDS("data_coded_bgd/dhuts/czone_BGD.rds")    
+      dhuts.y.dest.dcc  <- readRDS("data_coded_bgd/dhuts/dhuts_dest_y_temp.rds")
+      dhuts.y.dest.allo <- readRDS("data_coded_bgd/dhuts/dhuts_dest_y_allo_temp.rds")    
+      dhuts.y.orig      <- readRDS("data_coded_bgd/dhuts/dhuts_orig_y_temp.rds")  
+      
+      dhuts.all         <- readRDS("data_coded_bgd/dhuts/dhutsall.rds")
+      dhuts.all.withgov <- readRDS("data_coded_bgd/dhuts/dhutsall_withgov.rds")
+  
+    ## load commuting data
+    commuting.BGD    <- read.dta13(file="data_coded_bgd/flows/daily_trips_odmatrix_gravity.dta")
+    commuting.BGD.hw <- read.dta13(file="data_coded_bgd/flows/home_work_odmatrix_gravity.dta")
+
+    commuting.BGD    <- commuting.BGD    %>% 
+      rename(destination.czone=destination_czone, origin.czone=origin_czone)
+    commuting.BGD.hw <- commuting.BGD.hw %>% 
+      rename(destination.czone=destination_czone, origin.czone=origin_czone)
+  
+    ## merge tower area and coordinates
+      antenna.BGD <- read.csv(file="data_raw_bgd/other/towers_bgd.csv")
+      antenna.BGD <- antenna.BGD %>% 
+        rename(lat = latitude, lon = longitude, THAID = thaid) %>% 
+        select(tower, czone, lat, lon, THAID, thaname, area_km2) %>% unique()
+      stopifnot(antenna.BGD %>% unique_id(tower))
+
+      commuting.BGD <- commuting.BGD %>% 
+        left_join(antenna.BGD %>% select(tower, lat, lon, area_km2) %>% 
+                    rename(origin = tower,      lat_o = lat, lon_o = lon, km2_tower_o = area_km2), by="origin") %>% 
+        left_join(antenna.BGD %>% select(tower, lat, lon, area_km2) %>% 
+                    rename(destination = tower, lat_d = lat, lon_d = lon, km2_tower_d = area_km2), by="destination")
+      
+      commuting.BGD.hw <- commuting.BGD.hw %>% 
+        left_join(antenna.BGD %>% select(tower, lat, lon, area_km2) %>% 
+                    rename(origin = tower,      lat_o = lat, lon_o = lon, km2_tower_o = area_km2), by="origin") %>% 
+        left_join(antenna.BGD %>% select(tower, lat, lon, area_km2) %>% 
+                    rename(destination = tower, lat_d = lat, lon_d = lon, km2_tower_d = area_km2), by="destination")
+
+    ## load gravity equation results                       
+      est.gravity.BGD    = read.csv("data_coded/dfe_bgd_daily_trips.csv")
+      est.gravity.BGD.hw = read.csv("data_coded/dfe_bgd_home_work.csv")
+      
+      
+```    
+
+
+## 2. Data Coding Income: Survey and Model Predictions
+
+```{r, include=TRUE}
+
+  # Income measures:
+        # # z and d both productive
+        # logy.v11     = log(sum(exp(destfe + tau_coeff * ldurintp), na.rm=T))
+        # 
+        # # z and d neither productive
+        # logy.v00     = destfe
+        # 
+        # # d only productive
+        # logy.v01     = destfe + tau_coeff * ldurintp,
+        # 
+        # # z only productive
+        # logy.v10     = logy.v11 - tau_coeff * ldurintp,
+  # measures with ".adj" use the tower-level area adjustment
+
+
+  ## generate income measures
+  # first define the sample (important for v11 where we sum up over all o-d pairs)
+  # recall: sample_v2 = ifelse(duration_intp > min_dur & duration_intp < max_dur, 1, 0),
+    commuting.BGD        <- commuting.BGD    %>% mutate(sample_income_coding = 1)
+    commuting.BGD.hw     <- commuting.BGD.hw %>% mutate(sample_income_coding = 1)
+    commuting.BGD.exclnb <- commuting.BGD.hw  %>% mutate(sample_income_coding = sample_v2)
+    
+  # code: merge O and D FEs and define income measures
+    commuting.y        <- income_coding(commuting.BGD       , est.gravity.BGD       , debug=F)
+    commuting.y.hw     <- income_coding(commuting.BGD.hw    , est.gravity.BGD.hw    , debug=F)
+    commuting.y.exclnb <- income_coding(commuting.BGD.exclnb, est.gravity.BGD.hw    , debug=F)
+    
+  # minor checks - number of origins/destination cell phone towers without czone correspondence
+    print(commuting.y.hw %>% 
+            select(origin.czone) %>% 
+            filter(is.na(origin.czone)) %>% 
+            nrow())
+    
+    print(commuting.y.hw %>% 
+            select(destination.czone) %>% 
+            filter(is.na(destination.czone)) %>% 
+            nrow())
+    
+    print(commuting.y.hw %>% 
+            nrow())
+    
+    # volume is not missing
+    stopifnot(commuting.y.hw %>% 
+                filter(is.na(volume)) %>% 
+                nrow() == 0)
+    
+    # destination cell tower area never missing
+    stopifnot(commuting.y.hw %>% 
+                filter(is.na(km2_tower_d)) %>% 
+                nrow() == 0)
+  
+  ## Collapse CELL PHONE DATA at czone level
+  ## simple dest FE average at destination and origin (czone) level
+  take_avg.model.income.czone_level <- function(commuting){
+    
+      # v00 = wage (destination fixed effect) 
+      # average at the destination level, weigh by (cell phone) commuting volume
+      dest.simple <- commuting %>% 
+                  group_by(destination.czone) %>%
+                  dplyr::summarize(
+                    # logy.v00.simple.d.adj = weighted.mean(logy.v00.adj, w=volume, na.rm=T),
+                    # logy.v00.simple.d     = weighted.mean(logy.v00    , w=volume, na.rm=T)
+                    mean.logy.v00.adj.dest = weighted.mean(logy.v00.adj, w=volume, na.rm=T),
+                    mean.logy.v00.dest     = weighted.mean(logy.v00, w=volume, na.rm=T),
+                    mean.logy.v01.adj.dest = weighted.mean(logy.v01.adj, w=volume, na.rm=T),
+                    mean.logy.v01.dest     = weighted.mean(logy.v01, w=volume, na.rm=T),
+                    mean.logy.v10.adj.dest = weighted.mean(logy.v10.adj, w=volume, na.rm=T),
+                    mean.logy.v10.dest     = weighted.mean(logy.v10, w=volume, na.rm=T),
+                    mean.logy.v11.adj.dest = weighted.mean(logy.v11.adj, w=volume, na.rm=T),
+                    mean.logy.v11.dest     = weighted.mean(logy.v11, w=volume, na.rm=T)
+                    ) %>% 
+                  select(destination.czone, 
+                         mean.logy.v00.adj.dest,
+                         mean.logy.v00.dest, 
+                         mean.logy.v01.adj.dest,
+                         mean.logy.v01.dest, 
+                         mean.logy.v10.adj.dest,
+                         mean.logy.v10.dest, 
+                         mean.logy.v11.adj.dest,
+                         mean.logy.v11.dest)
+      
+      # origin level -- then merge destination level
+      model.income.means <- commuting %>% 
+                    group_by(origin.czone) %>%
+                    dplyr::summarize(
+                      # logy.v00.simple.o.adj = weighted.mean(logy.v00.adj, w=volume, na.rm=T),
+                      # logy.v00.simple.o     = weighted.mean(logy.v00    , w=volume, na.rm=T)
+                      mean.logy.v00.adj.orig = weighted.mean(logy.v00.adj, w=volume, na.rm=T),
+                      mean.logy.v00.orig     = weighted.mean(logy.v00    , w=volume, na.rm=T),
+                      mean.logy.v01.adj.orig = weighted.mean(logy.v01.adj, w=volume, na.rm=T),
+                      mean.logy.v01.orig     = weighted.mean(logy.v01    , w=volume, na.rm=T),
+                      mean.logy.v10.adj.orig = weighted.mean(logy.v10.adj, w=volume, na.rm=T),
+                      mean.logy.v10.orig     = weighted.mean(logy.v10    , w=volume, na.rm=T),
+                      mean.logy.v11.adj.orig = weighted.mean(logy.v11.adj, w=volume, na.rm=T),
+                      mean.logy.v11.orig     = weighted.mean(logy.v11    , w=volume, na.rm=T)
+                      ) %>% 
+                    select(origin.czone,
+                           mean.logy.v00.adj.orig,
+                           mean.logy.v00.orig,
+                           mean.logy.v01.adj.orig,
+                           mean.logy.v01.orig,
+                           mean.logy.v10.adj.orig,
+                           mean.logy.v10.orig,
+                           mean.logy.v11.adj.orig,
+                           mean.logy.v11.orig) %>%
+                    rename(destination.czone = origin.czone) %>%
+                    left_join(dest.simple, by="destination.czone")
+      
+      model.income.means
+  }
+  
+  ## Simple averages of the cell phone data inside CZONEs
+    commuting.y.czone        <- take_avg.model.income.czone_level(commuting.y)
+    commuting.y.hw.czone     <- take_avg.model.income.czone_level(commuting.y.hw)
+    commuting.y.exclnb.czone <- take_avg.model.income.czone_level(commuting.y.exclnb)
+    
+    
+  ## merge into dhuts data
+    dhuts.y.dest.dcc.original <- dhuts.y.dest.dcc
+    
+    # using daily cell phone commuting flows 
+    dhuts.y.dest.dcc <- dhuts.y.dest.dcc.original %>%
+      left_join(commuting.y.czone, by="destination.czone")
+    
+    # using home - work cell phone commuting flows
+    dhuts.y.dest.hw <- dhuts.y.dest.dcc.original %>%
+      left_join(commuting.y.hw.czone, by="destination.czone")
+    
+    dhuts.y.dest.allo <- dhuts.y.dest.allo %>%
+      left_join(commuting.y.hw.czone, by="destination.czone")
+    
+    dhuts.y.dest.exclnb <- dhuts.y.dest.dcc.original %>%
+      left_join(commuting.y.exclnb.czone, by="destination.czone")
+    
+    dhuts.y.orig <- dhuts.y.orig %>%
+      left_join(commuting.y.hw.czone %>% 
+                  rename(origin.czone = destination.czone), by="origin.czone")
+ 
+```
+
+## 3. DHUTS output at the individual level, for the individual level regressions
+
+```{r, include=TRUE}
+  
+  ## Collapse CELL PHONE DATA at czone pair level
+  ## averages weighed by the cell phone volume
+
+  take_avg.model.income.czone_pair_level <- function(commuting){
+    
+      # v00 = wage (destination fixed effect) 
+      # average at the destination level, weigh by (cell phone) commuting volume
+      model.income.means <- commuting %>% 
+                  group_by(origin.czone, destination.czone) %>%
+                  dplyr::summarize(
+                    mean.logy.v00.adj.origdest = weighted.mean(logy.v00.adj, w=volume, na.rm=T),
+                    mean.logy.v01.adj.origdest = weighted.mean(logy.v01.adj, w=volume, na.rm=T),
+                    mean.logy.v10.adj.origdest = weighted.mean(logy.v10.adj, w=volume, na.rm=T),
+                    mean.logy.v11.adj.origdest = weighted.mean(logy.v11.adj, w=volume, na.rm=T),
+                    
+                    mean.logy.v00.origdest = weighted.mean(logy.v00, w=volume, na.rm=T),
+                    mean.logy.v01.origdest = weighted.mean(logy.v01, w=volume, na.rm=T),
+                    mean.logy.v10.origdest = weighted.mean(logy.v10, w=volume, na.rm=T),
+                    mean.logy.v11.origdest = weighted.mean(logy.v11, w=volume, na.rm=T),
+                    
+                    # log duration bounded from below (otherwise get -Infty when using full sample)
+                    # lduration_intp     = weighted.mean(log(duration_intp), w=volume, na.rm=T),
+                    lduration_intp = weighted.mean(ldurintp, w=volume, na.rm=T),
+                  )
+      model.income.means
+  }
+
+  #commuting.y.origdest.czone    <- take_avg.model.income.czone_pair_level(commuting.y)
+  commuting.y.hw.origdest.czone <- take_avg.model.income.czone_pair_level(commuting.y.hw)
+
+  # keep only O and D czones inside DCC
+  dhuts.all <- dhuts.all %>% filter(origin.czone %in% 1:90 & destination.czone %in% 1:90)
+  dhuts.all.withgov <- dhuts.all.withgov %>% filter(origin.czone %in% 1:90 & destination.czone %in% 1:90)
+  
+  # merge the czone-czone average model income
+  dhuts.y.individual <- dhuts.all %>% 
+                        left_join(commuting.y.hw.origdest.czone, 
+                        by=c("origin.czone", "destination.czone"))
+  
+  dhuts.y.individual.withgov <- dhuts.all.withgov %>% 
+                        left_join(commuting.y.hw.origdest.czone, 
+                        by=c("origin.czone", "destination.czone"))
+
+  
+  # minor checks
+  # should both be zero - no missing values
+  stopifnot(dhuts.y.individual    %>% filter(is.na(income_trim)) %>% nrow() == 0 )
+  # stopifnot(dhuts.y.individual    %>% filter(is.na(mean.logy.v00.adj.origdest)) %>% nrow() == 0 )
+  print(dhuts.y.individual    %>% filter(is.na(mean.logy.v00.adj.origdest)) %>% nrow())
+  print(dhuts.y.individual %>% nrow())
+
+  
+```
+
+
+## 4. Save
+
+```{r}
+
+  # files for DHUTS validation and ML
+
+    # the benchmark:
+    # model income based on HW data
+    #   DHUTS income DCC origins only
+    saveRDS(dhuts.y.dest.hw    , "data_coded_bgd/workplace_income/dhuts_dest_y_hw.rds")
+
+
+    # model income based on DAILY data
+    #   DHUTS income DCC origins only
+    saveRDS(dhuts.y.dest.dcc   , "data_coded_bgd/workplace_income/dhuts_dest_y.rds")
+    
+    # DHUTS income is computed summing up over all destinations, including outside DCC 
+    #   model income based on HW data 
+    saveRDS(dhuts.y.dest.allo  , "data_coded_bgd/workplace_income/dhuts_dest_y_allo.rds")
+    
+    # average wages within czone only using volume to 
+    #   model income based on HW data
+    #   DHUTS income DCC origins only
+    saveRDS(dhuts.y.dest.exclnb, "data_coded_bgd/workplace_income/dhuts_dest_y_exclnb.rds")
+    
+    # at the czone originl level
+    saveRDS(dhuts.y.orig       , "data_coded_bgd/workplace_income/dhuts_orig_y.rds")
+
+  # files for individual level regressions and structural estimation
+    saveRDS(dhuts.y.individual   ,"data_coded_bgd/workplace_income/dhuts_y_individual.rds")  
+    saveRDS(dhuts.y.individual.withgov   ,"data_coded_bgd/workplace_income/dhuts_y_individual_withgov.rds")  
+    saveRDS(commuting.y   , "data_coded_bgd/workplace_income/commuting_y.rds")
+    saveRDS(commuting.y.hw, "data_coded_bgd/workplace_income/commuting_y_hw.rds")
+  
+```
+
+
+

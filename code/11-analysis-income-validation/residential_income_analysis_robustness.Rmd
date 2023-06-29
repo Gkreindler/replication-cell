@@ -1,0 +1,328 @@
+---
+title: "Residential Income Validation Robustness"
+output:
+  html_document:
+    df_print: paged
+editor_options:
+  chunk_output_type: inline
+---
+
+# Outline
+
+```{r "setup", message=FALSE, warning=FALSE, include=FALSE}
+suppressWarnings(library(ggplot2))
+suppressWarnings(library(dplyr))
+suppressWarnings(library(tidyr))
+suppressWarnings(library(boot))
+suppressWarnings(library(readstata13))
+suppressWarnings(library(stargazer))
+suppressWarnings(library(lfe))
+suppressWarnings(library(knitr))
+suppressWarnings(library(geosphere))
+suppressWarnings(library(Hmisc))
+suppressWarnings(library(pastecs))
+suppressWarnings(library(foreign))
+suppressWarnings(library(zeallot))
+
+set.seed(92373247); 
+  
+rm(list=ls())
+
+
+## include functions
+source(paste0(Sys.getenv("HOME"), "/Rinit/profile.R"))
+source("aux_functions.r")
+source(paste0(BGDSLKCELLPHONE_CODE, "util/conley.R"))
+knitr::opts_knit$set(root.dir = BGDSLKCELLPHONE_DATA) 
+
+```
+
+## 1. Load Residential income validation data
+
+```{r}
+  load(file="data_coded/residential_income.Rdata")
+
+### Benchmark
+  census.SLK.income.hw <- census.SLK.income.hw %>% mutate(
+    log_res_pop_density = log(volume.origin/km2_tower_o),
+    log_distCBD = log(distCBD)
+    ) %>% drop_na(census_outcomevar, log_res_pop_density, log_distCBD, logy.v00.adj, ds_n)
+  
+  census.BGD.income.hw <- census.BGD.income.hw %>% mutate(
+    log_res_pop_density = log(volume.origin/km2_tower_o),
+    log_distCBD = log(distCBD)
+    ) %>% drop_na(census_outcomevar, log_res_pop_density, log_distCBD, logy.v00.adj)
+
+### Exclude neighboring towers
+  census.SLK.income.exclnb <- census.SLK.income.exclnb %>% mutate(
+    log_res_pop_density = log(volume.origin/km2_tower_o),
+    log_distCBD = log(distCBD)
+    ) %>% drop_na(census_outcomevar, log_res_pop_density, log_distCBD, logy.v00.adj, ds_n)
+  
+  
+  census.BGD.income.exclnb <- census.BGD.income.exclnb %>% mutate(
+    log_res_pop_density = log(volume.origin/km2_tower_o),
+    log_distCBD = log(distCBD)
+    ) %>% drop_na(census_outcomevar, log_res_pop_density, log_distCBD, logy.v00.adj)
+  
+  
+### Daily flows
+  census.SLK.income.daily <- census.SLK.income.daily %>% mutate(
+    log_res_pop_density = log(volume.origin/km2_tower_o),
+    log_distCBD = log(distCBD)
+    ) %>% drop_na(census_outcomevar, log_res_pop_density, log_distCBD, logy.v00.adj, ds_n)
+  
+  
+  census.BGD.income.daily <- census.BGD.income.daily %>% mutate(
+    log_res_pop_density = log(volume.origin/km2_tower_o),
+    log_distCBD = log(distCBD)
+    ) %>% drop_na(census_outcomevar, log_res_pop_density, log_distCBD, logy.v00.adj)
+  
+  # distance cutof for Conley
+  dist_cutoff = 5
+```
+
+
+
+## 2 Robustness Table
+
+- different epsilon (4, 12)
+- using all samples for computing residential income
+- using home-work samples
+- using iterated gravity
+
+#### regression
+
+```{r, include=TRUE, echo=TRUE}
+
+
+
+run_wfelm_conley_robust <- function(mydata.BGD, mydata.SLK, outcomevar, debug=FALSE){
+          
+          
+          #################
+          #################
+          ## BGD
+          est.BGD.1 <- weighted_felm_with_ConleySE(data=mydata.BGD, 
+                                              dep = outcomevar, 
+                                              indep = "res.meanlogy.v00.adj", 
+                                              weight ="volume.origin", dist_cutoff = dist_cutoff)
+        
+          ### Slightly more complicated when we include subdistrict FE: 
+          # because of Conley, first residualize outcome and regressors on FE
+          est.BGD.4.plain  <- felm(data=mydata.BGD, 
+                             as.formula(paste0(outcomevar, 
+        " ~ res.meanlogy.v00.adj + log(volume.origin/km2_tower_o) + log(distCBD) + logy.v00.adj | THAID | 0 | 0")),
+        weight=mydata.BGD$volume.origin, keepCX=T)
+          
+          # residualize and predict
+            data.BGD.temp <- mydata.BGD
+            for (myvar in c(outcomevar, 
+                            "res.meanlogy.v00.adj", 
+                            "log_res_pop_density", 
+                            "log_distCBD", 
+                            "logy.v00.adj")){
+              est.temp <- felm(as.formula(
+                paste0(myvar," ~ 0 | as.factor(THAID) | 0 | 0")), 
+                weight=mydata.BGD$volume.origin, data=mydata.BGD)
+              
+              # merge residuals
+              data.BGD.temp  <- cbind(data.BGD.temp %>% select(-myvar), 
+                                              data.frame(residuals(est.temp)) 
+                                              )
+            }
+            
+            # run the final regression on residualised 
+            est.BGD.4 <- weighted_felm_with_ConleySE(data=data.BGD.temp, 
+                                                dep = outcomevar, 
+                      indep = c("res.meanlogy.v00.adj", 
+                                "log_res_pop_density", 
+                                "log_distCBD", 
+                                "logy.v00.adj"), 
+                                                weight ="volume.origin", dist_cutoff = dist_cutoff)
+        
+            r2.BGD <- c("Adjusted R2", 
+                      round(est.BGD.1$adj.rsq, 2), 
+                      round(summary(est.BGD.4.plain)$r2adj, 2))
+          
+          # check to see
+            if (debug){
+              stargazer(est.BGD.1, est.BGD.4.plain, est.BGD.4, 
+                    type='text', omit=c('THAID'), omit.stat='ser', dep.var.labels.include = FALSE)  
+            }
+            
+            
+          # Number of distinct sub-district FE
+          n_thana = mydata.BGD %>% select(THAID) %>% unique() %>% nrow()
+          
+          #################
+          #################
+          ## SLK
+          est.SLK.1 <- weighted_felm_with_ConleySE(data=mydata.SLK, 
+                                              dep = outcomevar, 
+                                              indep = "res.meanlogy.v00.adj", 
+                                              weight ="volume.origin", dist_cutoff = dist_cutoff)
+          
+          ### Slightly more complicated when we include subdistrict FE: 
+          # because of Conley, first residualize outcome and regressors on FE
+          est.SLK.4.plain  <- felm(data=mydata.SLK, 
+                             as.formula(paste0(outcomevar, 
+          " ~ res.meanlogy.v00.adj + log(volume.origin/km2_tower_o) + log(distCBD) + logy.v00.adj | ds_n | 0 | 0")),
+          weight=mydata.SLK$volume.origin, keepCX=T)
+          
+          # residualize and predict
+            data.SLK.temp <- mydata.SLK
+            for (myvar in c(outcomevar, 
+                            "res.meanlogy.v00.adj", 
+                            "log_res_pop_density", 
+                            "log_distCBD", 
+                            "logy.v00.adj")){
+              est.temp <- felm(as.formula(
+                paste0(myvar," ~ 0 | as.factor(ds_n) | 0 | 0")),  
+                weight=mydata.SLK$volume.origin, data=mydata.SLK)
+              
+              # merge residuals
+              data.SLK.temp  <- cbind(data.SLK.temp %>% select(-myvar), 
+                                              data.frame(residuals(est.temp)))
+            }
+            
+            est.SLK.4 <- weighted_felm_with_ConleySE(data=data.SLK.temp, 
+                                                dep = outcomevar, 
+                      indep = c("res.meanlogy.v00.adj", 
+                                "log_res_pop_density", 
+                                "log_distCBD", 
+                                "logy.v00.adj"), 
+                                                weight ="volume.origin", dist_cutoff = dist_cutoff)
+        
+            r2.SLK <- c("Adjusted R2", 
+                      round(est.SLK.1$adj.rsq, 2), 
+                      round(summary(est.SLK.4.plain)$r2adj, 2))
+          
+          # check to see
+            if (debug){
+            stargazer(est.SLK.1, est.SLK.4.plain, est.SLK.4, 
+                    type='text', omit=c('ds_n'), omit.stat='ser', dep.var.labels.include = FALSE)
+            }
+            
+          # Number of distinct sub-district FE
+          n_ds = mydata.SLK %>% select(ds_n) %>% unique() %>% nrow()
+          
+          results = list(est.BGD.1, est.BGD.4.plain, est.BGD.4, n_thana,
+                         est.SLK.1, est.SLK.4.plain, est.SLK.4, n_ds)
+          results
+        } 
+
+
+
+  outcomevar = "census_outcomevar"
+  out_name = "census_pca"
+  out_name_clean = "Census Residential Income Proxy"
+
+  ## exclude nearby towers (use gravity estimation sample to construct residential income)
+  results = run_wfelm_conley_robust(mydata.BGD = census.BGD.income.exclnb, 
+                                    mydata.SLK = census.SLK.income.exclnb,
+                                    outcomevar = outcomevar)
+  c(est.BGD.1.exclnb, est.BGD.4.plain.exclnb, est.BGD.4.exclnb, n_thana,
+    est.SLK.1.exclnb, est.SLK.4.plain.exclnb, est.SLK.4.exclnb, n_ds) %<-% results
+  
+  ## Use daily flows (and gravity)
+  results = run_wfelm_conley_robust(mydata.BGD = census.BGD.income.daily, 
+                                    mydata.SLK = census.SLK.income.daily,
+                                    outcomevar = outcomevar)
+  c(est.BGD.1.daily, est.BGD.4.plain.daily, est.BGD.4.daily, n_thana,
+    est.SLK.1.daily, est.SLK.4.plain.daily, est.SLK.4.daily, n_ds) %<-% results
+
+  ## No km2_tower_o adjustment
+  census.BGD.income.nokm2_tower_oadj <- census.BGD.income.daily %>% mutate(res.meanlogy.v00.adj = res.meanlogy.v00)
+  census.SLK.income.nokm2_tower_oadj <- census.SLK.income.daily %>% mutate(res.meanlogy.v00.adj = res.meanlogy.v00)
+  
+  results = run_wfelm_conley_robust(mydata.BGD = census.BGD.income.nokm2_tower_oadj, 
+                                    mydata.SLK = census.SLK.income.nokm2_tower_oadj,
+                                    outcomevar = outcomevar)
+  c(est.BGD.1.nokm2_tower_o, est.BGD.4.plain.nokm2_tower_o, est.BGD.4.nokm2_tower_o, n_thana,
+    est.SLK.1.nokm2_tower_o, est.SLK.4.plain.nokm2_tower_o, est.SLK.4.nokm2_tower_o, n_ds) %<-% results
+    
+  ## output to tex - BGD
+    r2.BGD <- c("Adjusted R2", 
+              round(est.BGD.1.exclnb$adj.rsq, 2), 
+              round(summary(est.BGD.4.plain.exclnb)$r2adj, 2), 
+              round(est.BGD.1.daily$adj.rsq, 2), 
+              round(summary(est.BGD.4.plain.daily)$r2adj, 2),
+              round(est.BGD.1.nokm2_tower_o$adj.rsq, 2), 
+              round(summary(est.BGD.4.plain.nokm2_tower_o)$r2adj, 2))
+  
+  
+    outfile = paste0(BGDSLKCELLPHONE_DATA, 
+                     "tables/table_H9/table_H9_BGD.tex")
+    nth = paste0("X (", n_thana,")")
+    capture.output(
+    stargazer(est.BGD.1.exclnb, est.BGD.4.exclnb, 
+              est.BGD.1.daily, est.BGD.4.daily, 
+              est.BGD.1.nokm2_tower_o, est.BGD.4.nokm2_tower_o,
+            add.lines=list(
+              c("Geographic Controls", "", "X", "", "X", "", "X"),
+              c("Sub-district FE (count)", "", nth, "", nth, "", nth),
+              r2.BGD
+            ),
+            column.separate = c(2,2,2),
+            column.labels = c("\\thead{(1) Daily \\\\ Flows}", 
+                              "\\thead{(2) Excluding \\\\ Neighboring Towers}", 
+                              "\\thead{(3) Without \\\\ km2_tower_o Adjustment}"),
+            model.numbers=FALSE,
+            keep=c('res.meanlogy.v00.adj'), digits = 2,
+            #model.numbers=FALSE,
+            dep.var.labels = out_name_clean,
+            dep.var.caption = "",
+            covariate.labels = c('log Model Income (residential)'), 
+            out = outfile,
+            type='latex', omit.stat=c('ser','rsq', 'adj.rsq'), omit.table.layout = "n", float = F))
+# dep.var.labels.include = FALSE,
+    # drop hline commands
+    edit_tex_file(texfile=outfile, drop_hline=T, add_resize="{\\textwidth}{!}{")
+  
+
+## output to tex - SLK
+    r2.SLK <- c("Adjusted R2", 
+              round(est.SLK.1.exclnb$adj.rsq, 2), 
+              round(summary(est.SLK.4.plain.exclnb)$r2adj, 2), 
+              round(est.SLK.1.daily$adj.rsq, 2), 
+              round(summary(est.SLK.4.plain.daily)$r2adj, 2),
+              round(est.SLK.1.nokm2_tower_o$adj.rsq, 2), 
+              round(summary(est.SLK.4.plain.nokm2_tower_o)$r2adj, 2))
+  
+  
+    outfile = paste0(BGDSLKCELLPHONE_DATA, 
+                     "tables/table_H9/table_H9_SLK.tex")
+
+    nds = paste0("X (", n_ds,")")
+    capture.output(
+    stargazer(est.SLK.1.exclnb, est.SLK.4.exclnb, 
+              est.SLK.1.daily, est.SLK.4.daily, 
+              est.SLK.1.nokm2_tower_o, est.SLK.4.nokm2_tower_o,
+            add.lines=list(
+              c("Geographic Controls", "", "X", "", "X", "", "X"),
+              c("Sub-district FE (count)", "", nds, "", nds, "", nds),
+              r2.SLK
+            ),
+            column.separate = c(2,2,2),
+            column.labels = c("\\thead{(1) Daily \\\\ Flows}", 
+                              "\\thead{(2) Excluding \\\\ Neighboring Towers}", 
+                              "\\thead{(3) Without \\\\ km2_tower_o Adjustment}"),
+            model.numbers=FALSE,
+
+            keep=c('res.meanlogy.v00.adj'), digits = 2,
+            #model.numbers=FALSE,
+            dep.var.labels = out_name_clean,
+            dep.var.caption = "",
+            covariate.labels = c('log Model Income (residential)'), 
+            out = outfile,
+            type='latex', omit.stat=c('ser','rsq', 'adj.rsq'), omit.table.layout = "n", float = F))
+# dep.var.labels.include = FALSE,
+    # drop hline commands
+    edit_tex_file(texfile=outfile, drop_hline=T, add_resize="{\\textwidth}{!}{")
+
+  
+  
+  
+```
+

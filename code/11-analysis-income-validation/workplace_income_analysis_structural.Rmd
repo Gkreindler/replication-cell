@@ -1,0 +1,113 @@
+---
+title: "Workplace Income Validation Analysis with Different Assumptions of Shocks and Travel Costs (Appendix D)"
+output:
+  html_document:
+    df_print: paged
+editor_options:
+  chunk_output_type: inline
+---
+
+# Outline
+
+```{r "setup", message=FALSE, warning=FALSE, include=FALSE}
+suppressWarnings(library(ggplot2))
+suppressWarnings(library(dplyr))
+suppressWarnings(library(tidyr))
+suppressWarnings(library(boot))
+suppressWarnings(library(readstata13))
+suppressWarnings(library(stargazer))
+suppressWarnings(library(lfe))
+suppressWarnings(library(knitr))
+suppressWarnings(library(geosphere))
+suppressWarnings(library(Hmisc))
+suppressWarnings(library(pastecs))
+suppressWarnings(library(foreign))
+
+
+set.seed(92373247); 
+  
+#rm(list=ls())
+
+
+## include functions
+source(paste0(Sys.getenv("HOME"), "/Rinit/profile.R"))
+knitr::opts_knit$set(root.dir = BGDSLKCELLPHONE_DATA) 
+source("aux_functions.r")
+source("income_analysis_functions.r")
+source(paste0(BGDSLKCELLPHONE_CODE, "util/conley.R"))
+
+```
+
+
+# 1. Load Data (BGD)
+
+```{r, include=TRUE}
+
+    ## Load czone
+      czone <- readRDS("data_coded_bgd/dhuts/czone_BGD.rds")
+
+    ## dhuts at survey respondent level and orig.czone x dest.czone (with HW model income)
+      dhuts.y.hw <- readRDS("data_coded_bgd/workplace_income/dhuts_y_individual.rds")
+      dhuts.y.hw.withgov <- readRDS("data_coded_bgd/workplace_income/dhuts_y_individual_withgov.rds")
+
+      
+    ## dhuts at origin level
+      dhuts.y.orig    <- readRDS("data_coded_bgd/workplace_income/dhuts_orig_y.rds")
+    
+    ## dhuts at destination level
+      dhuts.y.dest.dcc    <- readRDS("data_coded_bgd/workplace_income/dhuts_dest_y.rds")
+      dhuts.y.dest.allo   <- readRDS("data_coded_bgd/workplace_income/dhuts_dest_y_allo.rds")
+      dhuts.y.dest.hw     <- readRDS("data_coded_bgd/workplace_income/dhuts_dest_y_hw.rds")
+      dhuts.y.dest.exclnb <- readRDS("data_coded_bgd/workplace_income/dhuts_dest_y_exclnb.rds")
+      
+    ## commuting flows
+      est.gravity.BGD.hw = read.csv("data_coded/dfe_bgd_home_work.csv")
+
+      
+```    
+
+
+## 2. Reduced form regressions at the individual level (appendix)
+
+```{r, include=TRUE}
+
+  # Sample: individual commuters from the DHUTS survey, non-government, with home location within DCC
+  
+  ## Reduced form regressions
+  dhuts.y.hw.withgov <- dhuts.y.hw.withgov %>% mutate(dhuts_sample_rf = dhuts_sample == 1 & (origin.czone %in% 1:90)) # & primary_govt == 0
+
+  # hw
+  outfile = paste0(BGDSLKCELLPHONE_DATA, "tables/table_H7/table_H7.tex")
+  rf_regressions(dhuts.y.hw.withgov, outfile=outfile)
+  
+```
+
+
+
+## 3. Structural Analysis (appendix) + save data for hartal
+
+```{r, include=TRUE, echo=TRUE}
+  
+# structural estimates
+  dhuts.y.hw <- dhuts.y.hw %>% mutate(dhuts_sample_struct = dhuts_sample == 1 & primary_govt == 0)
+
+  r_boot = 1000
+
+  # trips adjust
+  struct_out           = paste0(BGDSLKCELLPHONE_DATA, 'tables/table_D2/table_D2.tex')
+  struct_out_newlayout = paste0(BGDSLKCELLPHONE_DATA, 'tables/table_D2/table_D2_formatted.tex')
+  struct_est <- struct_regressions(dhuts.y.hw, est.gravity.BGD.hw, r_boot=r_boot, outfile=struct_out, outfile_newlayout=struct_out_newlayout)
+  print(struct_est)
+
+    # export for Hartal analysis: optimal income and the others
+      alpha_z = struct_est['alpha_z', 'con.est']
+      epsilon = struct_est['epsilon', 'con.est']
+
+      opty_out = "data_coded_bgd/workplace_income/predicted_income_optimal.csv"
+
+
+```
+
+  
+  
+

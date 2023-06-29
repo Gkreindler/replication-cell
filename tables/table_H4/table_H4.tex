@@ -1,0 +1,32 @@
+{
+\def\sym#1{\ifmmode^{#1}\else\(^{#1}\)\fi}
+\begin{tabular}{l*{11}{c}}
+\toprule
+            &\multicolumn{1}{c}{(1)}&\multicolumn{1}{c}{(2)}&\multicolumn{1}{c}{(3)}&\multicolumn{1}{c}{(4)}&\multicolumn{1}{c}{(5)}&\multicolumn{1}{c}{(6)}&\multicolumn{1}{c}{(7)}&\multicolumn{1}{c}{(8)}&\multicolumn{1}{c}{(9)}&\multicolumn{1}{c}{(10)}&\multicolumn{1}{c}{(11)}\\
+            &\multicolumn{1}{c}{Destination Fixed Effects (Benchmark)}&\multicolumn{1}{c}{est2}&\multicolumn{1}{c}{est3}&\multicolumn{1}{c}{est4}&\multicolumn{1}{c}{est5}&\multicolumn{1}{c}{est6}&\multicolumn{1}{c}{est7}&\multicolumn{1}{c}{est8}&\multicolumn{1}{c}{est9}&\multicolumn{1}{c}{est10}&\multicolumn{1}{c}{est11}\\
+\addlinespace\addlinespace
+Dest FE (Daily Flows)&        0.98***&               &               &               &               &        1.09***&               &               &               &               &               \\
+            &      (0.01)   &               &               &               &               &      (0.01)   &               &               &               &               &               \\
+\addlinespace
+Dest FE (Full Sample)&               &        0.95***&               &               &               &               &        1.03***&               &               &               &               \\
+            &               &      (0.01)   &               &               &               &               &      (0.01)   &               &               &               &               \\
+\addlinespace
+Dest FE (OLS with log(volume))&               &               &        3.51***&               &               &               &               &        3.20***&               &               &               \\
+            &               &               &      (0.05)   &               &               &               &               &      (0.05)   &               &               &               \\
+\addlinespace
+Dest FE (OLS with log(volume+1))&               &               &               &        7.06***&               &               &               &               &        5.32***&               &               \\
+            &               &               &               &      (0.14)   &               &               &               &               &      (0.13)   &               &               \\
+\addlinespace
+Dest FE (Nonparametric Gravity Equation)&               &               &               &               &        0.96***&               &               &               &               &        1.00***&               \\
+            &               &               &               &               &      (0.00)   &               &               &               &               &      (0.00)   &               \\
+\addlinespace
+Dest FE (Travel Time with Congestion)&               &               &               &               &               &               &               &               &               &               &        0.98***\\
+            &               &               &               &               &               &               &               &               &               &               &      (0.00)   \\
+\addlinespace\addlinespace
+Estimation method&        PPML   &        PPML   &         OLS   &         OLS   &        PPML   &        PPML   &        PPML   &         OLS   &         OLS   &        PPML   &        PPML   \\
+City        &       Dhaka   &       Dhaka   &       Dhaka   &       Dhaka   &       Dhaka   &     Colombo   &     Colombo   &     Colombo   &     Colombo   &     Colombo   &     Colombo   \\
+Observations&       1,859   &       1,859   &       1,851   &       1,859   &       1,859   &       1,201   &       1,201   &       1,199   &       1,201   &       1,201   &       1,201   \\
+Adjusted R2 &        0.92   &        0.88   &        0.82   &        0.68   &        0.98   &        0.92   &        0.87   &        0.82   &        0.62   &        0.98   &        0.99   \\
+\bottomrule
+\end{tabular}
+}

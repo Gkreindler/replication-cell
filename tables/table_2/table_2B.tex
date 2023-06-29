@@ -1,0 +1,19 @@
+{
+\def\sym#1{\ifmmode^{#1}\else\(^{#1}\)\fi}
+\begin{tabular}{l*{6}{c}}
+\toprule
+            &\multicolumn{3}{c}{Low Skill}                  &\multicolumn{3}{c}{High Skill}                 \\\cmidrule(lr){2-4}\cmidrule(lr){5-7}
+            &\multicolumn{1}{c}{(1)}   &\multicolumn{1}{c}{(2)}   &\multicolumn{1}{c}{(3)}   &\multicolumn{1}{c}{(4)}   &\multicolumn{1}{c}{(5)}   &\multicolumn{1}{c}{(6)}   \\
+\addlinespace\addlinespace
+Log-linear  Low&        0.06***&               &        0.07***&        0.01   &               &       -0.01   \\
+            &      (0.02)   &               &      (0.02)   &      (0.01)   &               &      (0.01)   \\
+\addlinespace
+Log-linear  High&               &        0.03   &       -0.01   &               &        0.07***&        0.08***\\
+            &               &      (0.03)   &      (0.03)   &               &      (0.01)   &      (0.02)   \\
+\addlinespace\addlinespace
+Observations&          87   &          87   &          87   &          87   &          87   &          87   \\
+Adjusted R2 &        0.11   &        0.00   &        0.10   &        0.00   &        0.23   &        0.23   \\
+RMSE        &        0.30   &        0.32   &        0.30   &        0.17   &        0.15   &        0.15   \\
+\bottomrule
+\end{tabular}
+}
